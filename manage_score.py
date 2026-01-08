@@ -1,5 +1,6 @@
 import sys, os
 import PySimpleGUI as sg
+from poor_man_resource_bundle import PoorManResourceBundle
 import numpy as np
 import logging, logging.handlers
 import traceback
@@ -52,10 +53,12 @@ class ScoreViewer:
         self.load_musiclist()
         self.sdvx_logger = SDVXLogger()
         self.window = None
-        self.modflg = False # 内部データを弄ったかどうか覚えておく
-        self.num_del = 0 # 削除したデータ数
+        self.modflg = False
+        self.num_del = 0
         self.mng = ManageUploadedScores()
         self.load_rivallog()
+        self.bundle = PoorManResourceBundle(self.settings.get('default_locale', 'JA'))
+        self.i18n = self.bundle.get_text
 
     def load_rivallog(self):
         """前回起動時に保存していたライバルの自己べ情報を読み込む
@@ -162,38 +165,44 @@ class ScoreViewer:
         return os.path.join(base_path, relative_path)
     
     def gui(self):
+        # Language selection
+        available_langs = self.bundle.get_available_bundles()
+        lang_names = [self.i18n(f"menu.language.{lang.lower()}") for lang in available_langs]
+        current_lang = self.settings.get('default_locale', 'JA')
+        lang_dropdown = sg.Combo(lang_names, default_value=self.i18n(f"menu.language.{current_lang.lower()}"), key='lang_select', readonly=True, enable_events=True, size=(10,1))
+
         layout_filter = [
-            [sg.Checkbox('all', key='alllv', default=True, enable_events=True)],
+            [sg.Checkbox(self.i18n('checkbox.score.filter.all'), key='alllv', default=True, enable_events=True)],
             [sg.Checkbox(f"{lv:02d}", key=f'lv{lv}', default=True, enable_events=True) for lv in range(1,11)],
-            [sg.Checkbox(lv, key=f'lv{lv}', default=True, enable_events=True) for lv in range(11,21)],
-            [par_text('search'), sg.Input('', key='txt_filter', enable_events=True), par_btn('clear', key='btn_clear')]
+            [sg.Checkbox(str(lv), key=f'lv{lv}', default=True, enable_events=True) for lv in range(11,21)],
+            [par_text(self.i18n('text.score.search')), sg.Input('', key='txt_filter', enable_events=True), par_btn(self.i18n('button.rescan'), key='btn_clear')]
         ]
         layout_sort = [
             [
-                sg.Radio('降順', key='order_descend', group_id='order', default=True, enable_events=True),
-                sg.Radio('昇順', group_id='order', key='order_ascend', enable_events=True),
+                sg.Radio(self.i18n('radio.score.order.descending'), key='order_descend', group_id='order', default=True, enable_events=True),
+                sg.Radio(self.i18n('radio.score.order.ascending'), group_id='order', key='order_ascend', enable_events=True),
             ],
-            [par_text('ソート対象')],
+            [par_text(self.i18n('text.main.scoreDelete'))],
             [
                 sg.Radio('VF', group_id='sort_key', enable_events=True, key='sort_vf', default=True),
                 sg.Radio('Lv', group_id='sort_key', enable_events=True, key='sort_lv'),
                 sg.Radio('Tier', group_id='sort_key', enable_events=True, key='sort_tier'),
-                sg.Radio('曲名', group_id='sort_key', enable_events=True, key='sort_title'),
+                sg.Radio(self.i18n('table.header.title'), group_id='sort_key', enable_events=True, key='sort_title'),
             ],
             [
-                sg.Radio('スコア', group_id='sort_key', enable_events=True, key='sort_score'),
-                sg.Radio('ランプ', group_id='sort_key', enable_events=True, key='sort_lamp'),
-                sg.Radio('最終プレー日', group_id='sort_key', enable_events=True, key='sort_date'),
+                sg.Radio(self.i18n('table.header.score'), group_id='sort_key', enable_events=True, key='sort_score'),
+                sg.Radio(self.i18n('table.header.lamp'), group_id='sort_key', enable_events=True, key='sort_lamp'),
+                sg.Radio(self.i18n('table.header.lastPlayed'), group_id='sort_key', enable_events=True, key='sort_date'),
             ],
         ]
         layout_edit = [
             [sg.Text('', key='edit_title')],
             [sg.Listbox([], size=(50,4), key='edit_list', enable_events=True)],
-            [sg.Button('削除', key='edit_delete', enable_events=True),],
+            [sg.Button(self.i18n('button.score.delete'), key='edit_delete', enable_events=True),],
         ]
         layout_maya2 = [
             [sg.Listbox([], size=(50,4), key='maya2_list', enable_events=True)],
-            [sg.Button('削除', key='maya2_delete', enable_events=True),],
+            [sg.Button(self.i18n('button.score.delete'), key='maya2_delete', enable_events=True),],
         ]
         layout_rival = [
             [
@@ -201,10 +210,9 @@ class ScoreViewer:
                     []
                     ,size=(40,7)
                     ,key='table_rival'
-                    ,headings=['name', 'score', 'lamp']
+                    ,headings=[self.i18n('table.header.title'), self.i18n('table.header.score'), self.i18n('table.header.lamp')]
                     ,vertical_scroll_only = True
                     ,auto_size_columns=False
-                    #,cols_justification='cclrccc' # 4.61.0.21以降
                     ,justification='left'
                     ,select_mode = sg.TABLE_SELECT_MODE_BROWSE
                     ,col_widths=[10,7,7]
@@ -213,13 +221,14 @@ class ScoreViewer:
                 )
             ]
         ]
-        header = ['lv', 'Tier', 'title', 'diff', 'score', 'lamp', 'VF', 'last played']
+        header = [self.i18n('table.header.level'), 'Tier', self.i18n('table.header.title'), self.i18n('table.header.difficulty'), self.i18n('table.header.score'), self.i18n('table.header.lamp'), self.i18n('table.header.volforce'), self.i18n('table.header.lastPlayed')]
         layout = [
-            [sg.Frame(title='Filter', layout=layout_filter),
-             sg.Frame(title='Sort', layout=layout_sort),
-             sg.Frame(title='Rival', layout=layout_rival),
-             sg.Frame(title='Edit (helper)', layout=layout_edit),
-             sg.Frame(title='Edit (maya2)', layout=layout_maya2)],
+            [lang_dropdown],
+            [sg.Frame(title=self.i18n('button.rescan'), layout=layout_filter),
+             sg.Frame(title=self.i18n('button.rescan.missing'), layout=layout_sort),
+             sg.Frame(title=self.i18n('menu.rivals'), layout=layout_rival),
+             sg.Frame(title=self.i18n('button.resgister'), layout=layout_edit),
+             sg.Frame(title=self.i18n('button.send.pkl'), layout=layout_maya2)],
             [
                 sg.Table(
                     []
@@ -228,7 +237,6 @@ class ScoreViewer:
                     ,headings=header
                     ,vertical_scroll_only = False
                     ,auto_size_columns=False
-                    #,cols_justification='cclrccc' # 4.61.0.21以降
                     ,justification='left'
                     ,select_mode = sg.TABLE_SELECT_MODE_BROWSE
                     ,col_widths=[4,4,40,10,10,5,5,14]
@@ -448,16 +456,31 @@ class ScoreViewer:
 
     def main(self):
         self.gui()
-
         while True:
             ev, val = self.window.read()
-            if ev in (sg.WIN_CLOSED, 'Escape:27', '-WINDOW CLOSE ATTEMPTED-'): # 終了処理
-                if self.modflg: # 削除されている
-                    ans = sg.popup_yes_no(f'プレーデータが{self.num_del}件削除されています。\nプレーデータを保存しますか？', icon=self.ico_path('icon.ico'))
+            if ev in (sg.WIN_CLOSED, 'Escape:27', '-WINDOW CLOSE ATTEMPTED-'):
+                if self.modflg:
+                    ans = sg.popup_yes_no(self.i18n('dialog.manager.exit', self.num_del), icon=self.ico_path('icon.ico'))
                     if ans == 'Yes':
                         with open('alllog.pkl', 'wb') as f:
                             pickle.dump(self.sdvx_logger.alllog, f)
                 break
+            if ev == 'lang_select':
+                selected_lang_name = val['lang_select']
+                for lang in self.bundle.get_available_bundles():
+                    if selected_lang_name == self.i18n(f"menu.language.{lang.lower()}"):
+                        lang_code = lang
+                        break
+                else:
+                    lang_code = 'JA'
+                self.settings['default_locale'] = lang_code
+                with open(SETTING_FILE, 'w') as f:
+                    json.dump(self.settings, f, indent=2)
+                self.bundle = PoorManResourceBundle(lang_code)
+                self.i18n = self.bundle.get_text
+                self.window.close()
+                self.gui()
+                continue
             if ev == 'txt_filter':
                 self.update_table()
             elif ev == 'btn_clear':
@@ -469,7 +492,7 @@ class ScoreViewer:
                 for i in range(1,21):
                     self.window[f'lv{i}'].update(val['alllv'])
                 self.update_table()
-            elif ev == 'table': # 曲を選択した際にedit欄を更新
+            elif ev == 'table':
                 self.update_edit_list(val)
                 self.update_rival_list(val)
             elif ev == 'edit_delete':
@@ -479,8 +502,6 @@ class ScoreViewer:
                     tmp = self.sdvx_logger.alllog.pop(dataidx)
                     logger.debug(f"removed: idx:{dataidx} - {tmp.title}({tmp.difficulty}, {tmp.cur_score:,}(ex:{tmp.cur_exscore:,}) {tmp.lamp})")
                     tmp.disp()
-                    # maya2向け削除処理
-                    
                     self.modflg = True
                     self.num_del += 1
                     self.update_edit_list(val)
@@ -494,14 +515,12 @@ class ScoreViewer:
                     music_id = self.maya2_music_id
                     difficulty = self.maya2_difficulty
                     res = self.sdvx_logger.maya2.delete_score(revision, music_id, difficulty)
-                    # if res.status_code == 200: # 不正なデータを消せるようにするためにレスポンスは見ないでおく?
                     self.mng.delete(revision, music_id)
                     self.mng.save()
                     self.update_edit_list(val)
                 except Exception:
                     print(traceback.format_exc())
-    
+
 if __name__ == '__main__':
-    #b = SDVXLogger()
     a = ScoreViewer()
     a.main()

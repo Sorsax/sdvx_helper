@@ -481,43 +481,46 @@ class SDVXHelper:
                 class_cur.save('out/class_pre.png')
                 self.gen_first_vf = True
 
-    def start_rta_mode(self):
-        """RTA開始処理。変数の初期化などを行う。
-        """
-        self.rta_mode = True
-        self.rta_finished = False
-        self.rta_starttime = datetime.datetime.now()
-        self.rta_logger = SDVXLogger(player_name=self.settings['player_name'], rta_mode=True)
-        self.rta_target_vf = Decimal(self.settings['rta_target_vf'])
-        rta_vf_str = f"{self.settings['obs_txt_vf_header']}0.000{self.settings['obs_txt_vf_footer']}"
-        self.obs.change_text('sdvx_helper_rta_vf', rta_vf_str)
-        print(f'RTAモードを開始します。\ntarget VF = {self.rta_target_vf}')
-
-    def get_capture_after_rotate(self):
-        """ゲーム画面のキャプチャを取得し、正しい向きに直す。self.img_rotにも格納する。
-
-        Returns:
-            PIL.Image: 取得したゲーム画面
-        """
-        while True:
-            try:
-                if self.settings['save_on_capture']:
-                    self.obs.save_screenshot()
-                    img = Image.open(self.imgpath)
-                else:
-                    img = self.obs.get_screenshot()
-                if self.settings['orientation_top'] == 'right':
-                    ret = img.rotate(90, expand=True)
-                elif self.settings['orientation_top'] == 'left':
-                    ret = img.rotate(270, expand=True)
-                else:
-                    ret = img.resize((1080,1920))
-                break
-            except Exception:
-                continue
-        self.img_rot = ret
-        return ret
-    
+    def gui_main(self):
+        # Main GUI with language selection and i18n for all text
+        self.gui_mode = detect_mode.init
+        self.detect_mode = detect_mode.init
+        if self.window:
+            self.window.close()
+            self.window = None
+        menuitems = [
+            [self.i18n('menu.file'),[self.i18n('menu.file.settings'), self.i18n('menu.file.obs'), self.i18n('menu.file.webhook'), self.i18n('menu.file.open_portal'), self.i18n('menu.file.updates')]],
+            [self.i18n('menu.rivals'),[self.i18n('menu.rivals.google'), self.i18n('menu.rivals.get')]],
+            [self.i18n('menu.rta'),[self.i18n('menu.rta.start')]],
+            [self.i18n('menu.analysis'),[self.i18n('menu.analysis.tweet'),self.i18n('menu.analysis.csv'),self.i18n('menu.analysis.csvBest')]],
+        ]
+        # Language selection dropdown
+        available_langs = self.bundle.get_available_bundles()
+        lang_names = [self.i18n(f"menu.language.{lang.lower()}") for lang in available_langs]
+        current_lang = self.settings.get('default_locale', 'JA')
+        lang_dropdown = sg.Combo(lang_names, default_value=self.i18n(f"menu.language.{current_lang.lower()}"), key='lang_select', readonly=True, enable_events=True, size=(10,1))
+        layout = [
+            [sg.Menubar(menuitems, key='menu'), sg.Text(self.i18n('menu.language')+':'), lang_dropdown],
+            [
+                par_text(self.i18n('text.main.plays') + ':'), par_text(str(self.plays), key='txt_plays'),
+                par_text(self.i18n('text.main.mode') + ':'), par_text(self.detect_mode.name, key='txt_mode'),
+                par_text(self.i18n('message.main.obsError'), key='txt_obswarning', text_color="#ff0000")
+            ],
+            [par_btn(self.i18n('button.main.save'), tooltip=self.i18n('button.main.save.tooltip'), key='btn_savefig')],
+            [par_text('', size=(40,1), key='txt_info')],
+        ]
+        if self.settings['enable_register_gui']:
+            layout_register = [
+                [
+                    sg.Checkbox(self.i18n('checkbox.settings.autoRegisterFromSelect'), self.settings['import_from_select'], key='import_from_select', enable_events=True),
+                    sg.Checkbox(self.i18n('checkbox.settings.includeArcadeScores'), self.settings['import_arcade_score'], key='import_arcade_score', enable_events=True)
+                ],
+                [sg.Text('', key='register_gui_title', text_color='#4444ff', font=('Meiryo',16)), par_text('', key='register_gui_difficulty', text_color='#ff44ff', font=('Meiryo',16)), par_btn(self.i18n('button.resgister'), key='register_gui_add')],
+                [sg.Text(self.i18n('text.main.scoreRegistrationFromSelect')), sg.Text('00000000', key='register_gui_score', text_color='#4444ff', font=('Meiryo',14)), sg.Text('EX:'), sg.Text('00000', key='register_gui_exscore', text_color='#4444ff', font=('Meiryo',14)), sg.Text('Lamp:'), sg.Text('', key='register_gui_lamp', text_color='#4444ff', font=('Meiryo',14))],
+                [sg.Text(self.i18n('text.score.search') + ':'), sg.Input('', key='register_gui_search', size=(30,1), enable_events=True)],
+            ]
+            layout += layout_register
+        self.window = sg.Window(self.i18n('window.settings.title'), layout, grab_anywhere=True, return_keyboard_events=True, resizable=False, finalize=True, enable_close_attempted_event=True, icon=self.ico, location=(self.settings['lx'], self.settings['ly']))
     def update_settings(self, ev, val):
         """GUIから値を取得し、設定の更新を行う。
 
@@ -1660,14 +1663,19 @@ class SDVXHelper:
             elif ev == self.i18n('menu.rivals.google'):
                 self.stop_detect()
                 self.gui_googledrive()
-            elif ev in (self.i18n('menu.language.ja'),self.i18n('menu.language.en')):
-                if ev == self.i18n('menu.language.ja'):
-                    lang = 'JA'
+            elif key == 'lang_select':
+                # Language dropdown changed
+                selected_lang_name = val['lang_select']
+                # Map display name back to locale code
+                for lang in self.bundle.get_available_bundles():
+                    if selected_lang_name == self.i18n(f"menu.language.{lang.lower()}"):
+                        lang_code = lang
+                        break
                 else:
-                    lang = 'EN'
-                self.settings['default_locale'] = lang
+                    lang_code = 'JA'
+                self.settings['default_locale'] = lang_code
                 self.save_settings()
-                self.bundle = PoorManResourceBundle(lang)
+                self.bundle = PoorManResourceBundle(lang_code)
                 self.i18n = self.bundle.get_text
                 self.window.close()
                 self.gui_main()

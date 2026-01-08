@@ -7,6 +7,7 @@
 # リストビュー+選択したファイルについてジャケット、曲名を出すビュー
 # 
 import PySimpleGUI as sg
+from poor_man_resource_bundle import PoorManResourceBundle
 from bs4 import BeautifulSoup
 import sys
 import requests
@@ -45,14 +46,16 @@ class Reporter:
     def __init__(self, chk_update:bool=True):
         start = datetime.datetime.now()
         self.load_settings()
+        self.bundle = PoorManResourceBundle(self.settings.get('default_locale', 'JA'))
+        self.i18n = self.bundle.get_text
         if chk_update:
             self.update_musiclist()
         self.gen_summary = GenSummary(start)
         self.load_musiclist()
         self.read_bemaniwiki()
         self.ico=self.ico_path('icon.ico')
-        self.num_added_fumen = 0 # 登録した譜面数
-        self.flg_registered = {} # key:ファイル名、値:登録済みならTrue.do_coloringの結果保存用。
+        self.num_added_fumen = 0
+        self.flg_registered = {}
         self.gui()
         self.main()
 
@@ -276,7 +279,13 @@ class Reporter:
     ##########          GUIの設定
     ##############################################
     def gui(self):
-        header = ['title', 'artist', 'bpm', 'nov', 'adv', 'exh', '(APPEND)']
+        # Language selection
+        available_langs = self.bundle.get_available_bundles()
+        lang_names = [self.i18n(f"menu.language.{lang.lower()}") for lang in available_langs]
+        current_lang = self.settings.get('default_locale', 'JA')
+        lang_dropdown = sg.Combo(lang_names, default_value=self.i18n(f"menu.language.{current_lang.lower()}"), key='lang_select', readonly=True, enable_events=True, size=(10,1))
+
+        header = [self.i18n('table.header.title'), self.i18n('text.loading.bemaniwiki.extra'), 'bpm', 'nov', 'adv', 'exh', '(APPEND)']
         layout_info = [
             [sg.Image(None, size=(137,29), key='difficulty')],
             [sg.Image(None, size=(526,64), key='info')],
@@ -297,7 +306,7 @@ class Reporter:
             ],
             [sg.Table(
                 []
-                ,headings=['saved files']
+                ,headings=[self.i18n('popup.csvOutput.success')]
                 ,auto_size_columns=False
                 ,col_widths=[90]
                 ,alternating_row_color='#eeeeee'
@@ -311,15 +320,15 @@ class Reporter:
         ]
         layout_db = [
             [
-                sg.Text('difficulty:'), sg.Combo(['', 'nov', 'adv', 'exh', 'APPEND'], default_value='exh', key='combo_diff_db', font=(None,16), enable_events=True)
-                ,sg.Button('外部pklのマージ', key='merge')
-                ,sg.Text('0', key='num_hash'), sg.Text('曲')
-                ,sg.Button('pklを送信', key='send_pkl')
+                sg.Text(self.i18n('text.difficulty')), sg.Combo(['', 'nov', 'adv', 'exh', 'APPEND'], default_value='exh', key='combo_diff_db', font=(None,16), enable_events=True)
+                ,sg.Button(self.i18n('button.merge.pkl'), key='merge')
+                ,sg.Text('0', key='num_hash'), sg.Text(self.i18n('table.header.title'))
+                ,sg.Button(self.i18n('button.send.pkl'), key='send_pkl')
             ],
             [
                 sg.Table(
                     []
-                    ,headings=['title', 'hash']
+                    ,headings=[self.i18n('table.header.title'), 'hash']
                     ,auto_size_columns=False
                     ,col_widths=[40, 20]
                     ,alternating_row_color='#eeeeee'
@@ -332,22 +341,23 @@ class Reporter:
             ],
         ]
         layout = [
+            [lang_dropdown],
             [
-                sg.Text('search:', font=(None,16)), sg.Input('', size=(40,1), key='filter', font=(None,16), enable_events=True), sg.Button('clear', font=(None,16)), sg.Text('(登録済: ', font=(None,16)), sg.Text('0', key='num_added_fumen', font=(None,16)), sg.Text('譜面)', font=(None,16))
+                sg.Text(self.i18n('text.score.search'), font=(None,16)), sg.Input('', size=(40,1), key='filter', font=(None,16), enable_events=True), sg.Button(self.i18n('button.rescan'), font=(None,16)), sg.Text('(登録済: ', font=(None,16)), sg.Text('0', key='num_added_fumen', font=(None,16)), sg.Text('譜面)', font=(None,16))
             ],
             [
-                sg.Text('title:', font=(None,16)), sg.Input('', key='txt_title', font=(None,16), size=(50,1))
+                sg.Text(self.i18n('table.header.title'), font=(None,16)), sg.Input('', key='txt_title', font=(None,16), size=(50,1))
             ],
             [
                 sg.Text('hash_jacket:', font=(None,16)), sg.Input('', key='hash_jacket', size=(20,1), font=(None,16)), sg.Text('hash_info:'), sg.Input('', key='hash_info', size=(20,1))
-                ,sg.Text('難易度:', font=(None,16)), sg.Combo(['', 'nov', 'adv', 'exh', 'APPEND'], key='combo_difficulty', font=(None,16))
+                ,sg.Text(self.i18n('text.difficulty'), font=(None,16)), sg.Combo(['', 'nov', 'adv', 'exh', 'APPEND'], key='combo_difficulty', font=(None,16))
             ],
-            [sg.Button('曲登録', key='register'), sg.Button('ファイル一覧に色付け(重いです)', key='coloring')],
+            [sg.Button(self.i18n('button.resgister'), key='register'), sg.Button(self.i18n('button.rescan'), key='coloring')],
             [sg.Column(layout_tables, key='column_table'), sg.Column(layout_db, key='column_db')],
             [sg.Text('', text_color="#ff0000", key='state', font=(None,16))],
             [sg.Image(None, size=(100,100), key='jacket'), sg.Column(layout_info)]
         ]
-        self.window = sg.Window(f"SDVX helper - OCR未検出曲報告ツール", layout, resizable=True, grab_anywhere=True,return_keyboard_events=True,finalize=True,enable_close_attempted_event=True,icon=self.ico,location=(self.settings['lx'], self.settings['ly']), size=(900,780))
+        self.window = sg.Window(f"SDVX helper - OCR", layout, resizable=True, grab_anywhere=True,return_keyboard_events=True,finalize=True,enable_close_attempted_event=True,icon=self.ico,location=(self.settings['lx'], self.settings['ly']), size=(900,780))
         self.window['musics'].expand(expand_x=True, expand_y=True)
         self.window['files'].expand(expand_x=True, expand_y=True)
         self.window['column_table'].expand(expand_x=True, expand_y=True)
